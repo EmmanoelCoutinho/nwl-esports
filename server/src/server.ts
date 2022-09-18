@@ -1,14 +1,101 @@
 import express from 'express';
+import cors from 'cors';
+
+import { PrismaClient } from '@prisma/client';
+
+import { convertMinutesToHourString } from './utils/convert-minutes-to-hour-string';
+import { convertHourStringToMinutes } from './utils/convert-hour-string-to-minutes';
 
 const app = express();
 
-app.get('/ads', (req, res) => {
-  return res.json([
-    { id: 1, name: 'anuncio 1' },
-    { id: 2, name: 'anuncio 2' },
-    { id: 3, name: 'anuncio 3' },
-    { id: 4, name: 'anuncio 4' },
-  ]);
+app.use(express.json());
+app.use(cors());
+
+const prisma = new PrismaClient({
+  log: ['query'],
+});
+
+//lista os jogos
+app.get('/games', async (req, res) => {
+  const games = await prisma.game.findMany({
+    include: {
+      _count: {
+        select: {
+          ads: true,
+        },
+      },
+    },
+  });
+  return res.json(games);
+});
+
+// Cria novos anúncios
+app.post('/games/:id/ads', async (req, res) => {
+  const gameId = req.params.id;
+  const body: any = req.body;
+
+  const ad = await prisma.ads.create({
+    data: <any>{
+      gameId,
+      name: body.name,
+      yearsPlaying: body.yearsPlaying,
+      discord: body.discord,
+      weekDays: body.weekDays.join(','),
+      hourStart: convertHourStringToMinutes(body.hourStart),
+      hourEnd: convertHourStringToMinutes(body.hourEnd),
+      useVoiceChannel: body.useVoiceChannel,
+    },
+  });
+
+  return res.status(201).json(ad);
+});
+
+// pegar o ad de um game em especifico
+app.get('/games/:id/ads', async (req, res) => {
+  const gameId = req.params.id;
+
+  const ads = await prisma.ads.findMany({
+    select: {
+      id: true,
+      name: true,
+      weekDays: true,
+      useVoiceChannel: true,
+      yearsPlaying: true,
+      hourStart: true,
+      hourEnd: true,
+    },
+    where: {
+      gameId,
+    },
+    orderBy: {
+      hourStart: 'desc',
+    },
+  });
+
+  return res.json(
+    ads.map((ad) => ({
+      ...ad,
+      weekDays: ad.weekDays.split(','),
+      hourStart: convertMinutesToHourString(ad.hourStart),
+      hourEnd: convertMinutesToHourString(ad.hourEnd),
+    }))
+  );
+});
+
+// pegar o discord de um ad em especifico
+app.get('/ads/:id/discord', async (req, res) => {
+  const adId = req.params.id;
+
+  const ad = await prisma.ads.findUniqueOrThrow({
+    select: {
+      discord: true,
+    },
+    where: {
+      id: adId,
+    },
+  });
+
+  return res.json({ discord: ad.discord });
 });
 
 app.listen(3333);
